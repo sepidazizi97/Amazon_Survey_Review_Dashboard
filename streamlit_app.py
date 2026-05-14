@@ -7,192 +7,312 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Amazon Transportation Survey Dashboard")
-st.write("Ben Franklin Transit | Employee Transportation Survey Analysis")
+# -----------------------------
+# Custom Styling
+# -----------------------------
+st.markdown("""
+<style>
+.main {
+    background-color: #f7f9fc;
+}
+.block-container {
+    padding-top: 2rem;
+}
+.metric-card {
+    background-color: white;
+    padding: 20px;
+    border-radius: 14px;
+    box-shadow: 0px 2px 8px rgba(0,0,0,0.08);
+    text-align: center;
+}
+.metric-title {
+    font-size: 15px;
+    color: #666;
+}
+.metric-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: #1f4e79;
+}
+.section-card {
+    background-color: white;
+    padding: 22px;
+    border-radius: 14px;
+    box-shadow: 0px 2px 8px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader(
-    "Upload the cleaned Excel file",
+# -----------------------------
+# Header
+# -----------------------------
+st.title("Amazon Transportation Survey Dashboard")
+st.caption("Ben Franklin Transit | Employee Commute and Transportation Needs Analysis")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload cleaned Excel file",
     type=["xlsx"]
 )
 
-if uploaded_file is not None:
+if uploaded_file is None:
+    st.info("Upload your cleaned Excel file to begin.")
+    st.stop()
 
-    xls = pd.ExcelFile(uploaded_file)
+xls = pd.ExcelFile(uploaded_file)
 
-    cleaned_data = pd.read_excel(uploaded_file, sheet_name="cleaned_data")
-    question_lookup = pd.read_excel(uploaded_file, sheet_name="question_lookup")
+cleaned_data = pd.read_excel(uploaded_file, sheet_name="cleaned_data")
+question_lookup = pd.read_excel(uploaded_file, sheet_name="question_lookup")
 
-    st.sidebar.header("Dashboard Navigation")
-    page = st.sidebar.radio(
-        "Select a section",
-        [
-            "Overview",
-            "Question-by-Question Analysis",
-            "Open-Ended Themes",
-            "Open-Ended Responses",
-            "Relational Analysis"
-        ]
+question_dict = dict(zip(question_lookup["question_id"], question_lookup["question_text"]))
+
+# -----------------------------
+# Sidebar
+# -----------------------------
+st.sidebar.title("Navigation")
+page = st.sidebar.radio(
+    "Choose a section",
+    [
+        "Dashboard Overview",
+        "Question Analysis",
+        "Open-Ended Themes",
+        "Relationship Analysis",
+        "Data Explorer"
+    ]
+)
+
+# -----------------------------
+# Overview Page
+# -----------------------------
+if page == "Dashboard Overview":
+
+    st.subheader("Survey Overview")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Total Responses</div>
+            <div class="metric-value">{len(cleaned_data)}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Survey Questions</div>
+            <div class="metric-value">{len(question_lookup)}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Dashboard Sheets</div>
+            <div class="metric-value">{len(xls.sheet_names)}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        missing_rate = round(cleaned_data.isna().mean().mean() * 100, 1)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Average Missing Data</div>
+            <div class="metric-value">{missing_rate}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    st.subheader("Purpose of the Dashboard")
+    st.markdown("""
+    This dashboard summarizes employee transportation survey results from the Amazon facility.
+    It is designed to help identify commute patterns, transportation barriers, interest in transit,
+    and possible opportunities for service planning, employer partnerships, carpool/vanpool programs,
+    and access improvements.
+    """)
+
+    st.subheader("Survey Questions")
+    st.dataframe(question_lookup, use_container_width=True)
+
+# -----------------------------
+# Question Analysis
+# -----------------------------
+elif page == "Question Analysis":
+
+    st.subheader("Question-by-Question Analysis")
+
+    selected_q = st.selectbox(
+        "Select a survey question",
+        question_lookup["question_id"],
+        format_func=lambda q: f"{q} — {question_dict[q]}"
     )
 
-    # -----------------------------
-    # Overview
-    # -----------------------------
-    if page == "Overview":
-        st.header("Survey Overview")
+    st.markdown(f"### {selected_q}: {question_dict[selected_q]}")
 
-        col1, col2, col3 = st.columns(3)
+    q_data = cleaned_data[selected_q].dropna().astype(str)
 
-        with col1:
-            st.metric("Total Responses", len(cleaned_data))
+    if q_data.empty:
+        st.warning("No responses available for this question.")
+        st.stop()
 
-        with col2:
-            st.metric("Total Questions", len(question_lookup))
+    summary = q_data.value_counts().reset_index()
+    summary.columns = ["Response", "Count"]
+    summary["Percent"] = round(summary["Count"] / summary["Count"].sum() * 100, 1)
 
-        with col3:
-            st.metric("Available Sheets", len(xls.sheet_names))
+    col1, col2 = st.columns([1, 2])
 
-        st.subheader("Cleaned Data Preview")
-        st.dataframe(cleaned_data.head(20), use_container_width=True)
+    with col1:
+        st.markdown("#### Response Summary")
+        st.dataframe(summary, use_container_width=True)
 
-        st.subheader("Question Lookup")
-        st.dataframe(question_lookup, use_container_width=True)
-
-    # -----------------------------
-    # Question-by-question analysis
-    # -----------------------------
-    elif page == "Question-by-Question Analysis":
-        st.header("Question-by-Question Analysis")
-
-        question_options = dict(
-            zip(question_lookup["question_id"], question_lookup["question_text"])
+    with col2:
+        fig = px.bar(
+            summary,
+            x="Count",
+            y="Response",
+            orientation="h",
+            text="Percent",
+            title="Response Distribution"
         )
-
-        selected_q = st.selectbox(
-            "Select a question",
-            list(question_options.keys()),
-            format_func=lambda x: f"{x}: {question_options[x]}"
+        fig.update_traces(texttemplate="%{text}%")
+        fig.update_layout(
+            height=500,
+            margin=dict(l=20, r=20, t=60, b=20),
+            yaxis=dict(categoryorder="total ascending")
         )
+        st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader(question_options[selected_q])
+# -----------------------------
+# Open-Ended Themes
+# -----------------------------
+elif page == "Open-Ended Themes":
 
-        if selected_q in cleaned_data.columns:
-            q_data = cleaned_data[selected_q].dropna().astype(str)
+    st.subheader("Open-Ended Response Themes")
 
-            summary = (
-                q_data.value_counts()
-                .reset_index()
-            )
-            summary.columns = ["Response", "Count"]
-            summary["Percent"] = round(summary["Count"] / summary["Count"].sum() * 100, 2)
+    if "theme_summary" not in xls.sheet_names or "open_ended_themes" not in xls.sheet_names:
+        st.warning("Theme analysis sheets were not found.")
+        st.stop()
 
-            st.dataframe(summary, use_container_width=True)
+    theme_summary = pd.read_excel(uploaded_file, sheet_name="theme_summary")
+    open_responses = pd.read_excel(uploaded_file, sheet_name="open_ended_themes")
 
-            fig = px.bar(
-                summary,
-                x="Response",
-                y="Count",
-                text="Percent",
-                title=f"Response Distribution for {selected_q}"
-            )
+    selected_open_q = st.selectbox(
+        "Select an open-ended question",
+        theme_summary["question_id"].unique()
+    )
 
-            fig.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
+    if selected_open_q in question_dict:
+        st.markdown(f"### {selected_open_q}: {question_dict[selected_open_q]}")
 
-    # -----------------------------
-    # Open-ended themes
-    # -----------------------------
-    elif page == "Open-Ended Themes":
-        st.header("Open-Ended Theme Analysis")
+    filtered_theme = theme_summary[theme_summary["question_id"] == selected_open_q]
+    filtered_responses = open_responses[open_responses["question_id"] == selected_open_q]
 
-        if "theme_summary" in xls.sheet_names:
-            theme_summary = pd.read_excel(uploaded_file, sheet_name="theme_summary")
+    col1, col2 = st.columns([1, 2])
 
-            st.dataframe(theme_summary, use_container_width=True)
+    with col1:
+        st.markdown("#### Theme Counts")
+        st.dataframe(filtered_theme, use_container_width=True)
 
-            selected_theme_q = st.selectbox(
-                "Select an open-ended question",
-                theme_summary["question_id"].unique()
-            )
+    with col2:
+        fig = px.bar(
+            filtered_theme.sort_values("count"),
+            x="count",
+            y="theme",
+            orientation="h",
+            text="count",
+            title="Main Themes"
+        )
+        fig.update_layout(height=450)
+        st.plotly_chart(fig, use_container_width=True)
 
-            filtered_theme = theme_summary[
-                theme_summary["question_id"] == selected_theme_q
-            ]
+    st.markdown("#### Open-Ended Responses")
 
-            fig = px.bar(
-                filtered_theme,
-                x="theme",
-                y="count",
-                title=f"Top Themes for {selected_theme_q}",
-                text="count"
-            )
+    search_term = st.text_input("Search within responses")
 
-            st.plotly_chart(fig, use_container_width=True)
-
-        else:
-            st.warning("No theme_summary sheet found.")
-
-    # -----------------------------
-    # Open-ended responses
-    # -----------------------------
-    elif page == "Open-Ended Responses":
-        st.header("Open-Ended Responses with Themes")
-
-        if "open_ended_themes" in xls.sheet_names:
-            open_responses = pd.read_excel(uploaded_file, sheet_name="open_ended_themes")
-
-            selected_open_q = st.selectbox(
-                "Select an open-ended question",
-                open_responses["question_id"].unique()
-            )
-
-            filtered_responses = open_responses[
-                open_responses["question_id"] == selected_open_q
-            ]
-
-            st.dataframe(filtered_responses, use_container_width=True)
-
-            search_term = st.text_input("Search responses")
-
-            if search_term:
-                searched = filtered_responses[
-                    filtered_responses["response_text"]
-                    .astype(str)
-                    .str.contains(search_term, case=False, na=False)
-                ]
-
-                st.write(f"Search results for: {search_term}")
-                st.dataframe(searched, use_container_width=True)
-
-        else:
-            st.warning("No open_ended_themes sheet found.")
-
-    # -----------------------------
-    # Relational analysis
-    # -----------------------------
-    elif page == "Relational Analysis":
-        st.header("Relational Analysis")
-
-        relational_sheets = [
-            sheet for sheet in xls.sheet_names
-            if "_by_" in sheet
+    if search_term:
+        filtered_responses = filtered_responses[
+            filtered_responses["response_text"]
+            .astype(str)
+            .str.contains(search_term, case=False, na=False)
         ]
 
-        if relational_sheets:
-            selected_sheet = st.selectbox(
-                "Select a relationship table",
-                relational_sheets
-            )
+    st.dataframe(filtered_responses, use_container_width=True)
 
-            relationship_data = pd.read_excel(
-                uploaded_file,
-                sheet_name=selected_sheet
-            )
+# -----------------------------
+# Relationship Analysis
+# -----------------------------
+elif page == "Relationship Analysis":
 
-            st.subheader(selected_sheet)
-            st.dataframe(relationship_data, use_container_width=True)
+    st.subheader("Relationship Between Survey Questions")
 
-        else:
-            st.warning("No relational analysis sheets found.")
+    st.markdown("""
+    Use this section to compare how answers to one question relate to another.
+    For example, you can compare commute mode with interest in transit, or shift time with transportation barriers.
+    """)
 
-else:
-    st.info("Please upload your cleaned Excel file to begin.")
+    question_ids = list(question_lookup["question_id"])
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        q1 = st.selectbox(
+            "First question",
+            question_ids,
+            format_func=lambda q: f"{q} — {question_dict[q]}"
+        )
+
+    with col2:
+        q2 = st.selectbox(
+            "Second question",
+            question_ids,
+            index=1 if len(question_ids) > 1 else 0,
+            format_func=lambda q: f"{q} — {question_dict[q]}"
+        )
+
+    if q1 == q2:
+        st.warning("Please select two different questions.")
+    else:
+        relationship_table = pd.crosstab(
+            cleaned_data[q1].astype(str),
+            cleaned_data[q2].astype(str)
+        )
+
+        st.markdown("#### Cross-Tabulation")
+        st.dataframe(relationship_table, use_container_width=True)
+
+        heatmap_data = relationship_table.reset_index().melt(
+            id_vars=q1,
+            var_name=q2,
+            value_name="Count"
+        )
+
+        fig = px.density_heatmap(
+            heatmap_data,
+            x=q2,
+            y=q1,
+            z="Count",
+            title="Relationship Heatmap"
+        )
+
+        fig.update_layout(height=600)
+        st.plotly_chart(fig, use_container_width=True)
+
+# -----------------------------
+# Data Explorer
+# -----------------------------
+elif page == "Data Explorer":
+
+    st.subheader("Cleaned Survey Data")
+
+    st.dataframe(cleaned_data, use_container_width=True)
+
+    csv = cleaned_data.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="Download cleaned data as CSV",
+        data=csv,
+        file_name="cleaned_amazon_survey.csv",
+        mime="text/csv"
+    )

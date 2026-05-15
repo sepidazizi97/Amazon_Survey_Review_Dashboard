@@ -5,6 +5,8 @@ import plotly.express as px
 import re
 from collections import Counter
 import html
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
 
 st.set_page_config(
     page_title="Amazon Transportation Survey Dashboard",
@@ -45,18 +47,6 @@ st.markdown("""
     box-shadow: 0px 2px 8px rgba(0,0,0,0.06);
     margin-bottom: 20px;
 }
-.word-map {
-    background-color: white;
-    border-radius: 14px;
-    padding: 22px;
-    box-shadow: 0px 2px 8px rgba(0,0,0,0.06);
-    line-height: 2.6;
-}
-.word-chip {
-    display: inline-block;
-    margin: 6px 10px 6px 0;
-    font-weight: 700;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,13 +58,17 @@ COLOR_SEQUENCE = [
 # -----------------------------
 # Helper Functions
 # -----------------------------
+
 def split_multi_response(value):
-    """For select-all-that-apply questions such as Q6, Q9, and Q14."""
+    """Split select-all-that-apply answers such as Q6, Q9, and Q14."""
     if pd.isna(value):
         return []
+
     text = str(value).strip()
+
     if not text:
         return []
+
     parts = re.split(r";|\n|\|", text)
     return [p.strip() for p in parts if p.strip()]
 
@@ -89,22 +83,30 @@ def summarize_single(series):
         .value_counts()
         .reset_index()
     )
+
     summary.columns = ["Response", "Count"]
-    summary["Percent"] = round(summary["Count"] / summary["Count"].sum() * 100, 1)
+
+    if summary["Count"].sum() > 0:
+        summary["Percent"] = round(summary["Count"] / summary["Count"].sum() * 100, 1)
+    else:
+        summary["Percent"] = 0
+
     return summary
 
 
 def summarize_multi(series, total_respondents):
     all_items = []
+
     for value in series.dropna():
         all_items.extend(split_multi_response(value))
 
     if not all_items:
-        return pd.DataFrame(columns=["Response", "Count", "Percent of Respondents"])
+        return pd.DataFrame(columns=["Response", "Count", "Percent"])
 
     summary = pd.Series(all_items).value_counts().reset_index()
     summary.columns = ["Response", "Count"]
-    summary["Percent of Respondents"] = round(summary["Count"] / max(total_respondents, 1) * 100, 1)
+    summary["Percent"] = round(summary["Count"] / max(total_respondents, 1) * 100, 1)
+
     return summary
 
 
@@ -120,7 +122,7 @@ def extract_number(value):
 
     nums = [float(n) for n in nums]
 
-    # If a person wrote a range like 20-30, use the average.
+    # If the person wrote a range like 20–30, use the average.
     if len(nums) >= 2:
         return sum(nums[:2]) / 2
 
@@ -129,9 +131,10 @@ def extract_number(value):
 
 def commute_time_range(value):
     n = extract_number(value)
+
     if n is None:
         return "Unclear / no response"
-    if n <= 10:
+    elif n <= 10:
         return "0–10 minutes"
     elif n <= 20:
         return "11–20 minutes"
@@ -147,9 +150,10 @@ def commute_time_range(value):
 
 def commute_distance_range(value):
     n = extract_number(value)
+
     if n is None:
         return "Unclear / no response"
-    if n <= 2:
+    elif n <= 2:
         return "0–2 miles"
     elif n <= 5:
         return "3–5 miles"
@@ -165,9 +169,10 @@ def commute_distance_range(value):
 
 def commute_cost_range(value):
     n = extract_number(value)
+
     if n is None:
         return "Unclear / no response"
-    if n == 0:
+    elif n == 0:
         return "$0"
     elif n <= 5:
         return "$1–$5"
@@ -231,6 +236,7 @@ def detect_themes(text):
     }
 
     found = []
+
     for theme, keywords in theme_keywords.items():
         if any(keyword in text for keyword in keywords):
             found.append(theme)
@@ -246,6 +252,7 @@ def create_theme_outputs(df, qid):
 
     for response in df[qid].dropna().astype(str):
         themes = detect_themes(response)
+
         for theme in themes:
             rows.append({
                 "Question": qid,
@@ -260,61 +267,49 @@ def create_theme_outputs(df, qid):
     else:
         theme_summary = theme_df["Theme"].value_counts().reset_index()
         theme_summary.columns = ["Theme", "Count"]
+
         total_responses = df[qid].dropna().shape[0]
-        theme_summary["Percent"] = round(theme_summary["Count"] / max(total_responses, 1) * 100, 1)
+        theme_summary["Percent"] = round(
+            theme_summary["Count"] / max(total_responses, 1) * 100,
+            1
+        )
 
     return theme_summary, theme_df
 
 
-def word_counts(series):
+def show_word_cloud(series):
     stop_words = {
         "the", "and", "for", "that", "this", "with", "from", "have", "has",
-        "are", "was", "were", "you", "your", "will", "would", "could", "should",
-        "not", "but", "can", "all", "our", "their", "they", "them", "than",
-        "then", "also", "more", "very", "use", "using", "used", "need", "needs",
-        "work", "transportation", "public", "bus", "buses", "route", "routes",
-        "amazon", "company", "employee", "employees", "commute", "answer",
-        "none", "nan", "n/a", "na", "para", "que", "los", "las", "una", "uno",
+        "are", "was", "were", "you", "your", "will", "would", "could",
+        "should", "not", "but", "can", "all", "our", "their", "they",
+        "them", "than", "then", "also", "more", "very", "use", "using",
+        "used", "need", "needs", "work", "transportation", "public",
+        "bus", "buses", "route", "routes", "amazon", "company",
+        "employee", "employees", "commute", "answer", "none",
+        "nan", "n/a", "na", "para", "que", "los", "las", "una", "uno",
         "con", "por", "del", "como", "mas", "más", "hay", "trabajo"
     }
 
     text = " ".join(series.dropna().astype(str)).lower()
-    text = re.sub(r"[^a-zA-ZáéíóúñüÁÉÍÓÚÑÜ\s]", " ", text)
-    words = [w.strip() for w in text.split() if len(w.strip()) > 2]
-    words = [w for w in words if w not in stop_words]
 
-    return Counter(words)
-
-
-def show_word_map(series):
-    counts = word_counts(series)
-
-    if not counts:
-        st.info("No words available for the word map.")
+    if not text.strip():
+        st.info("No words available for this word cloud.")
         return
 
-    top_words = counts.most_common(45)
-    max_count = max(count for word, count in top_words)
+    wordcloud = WordCloud(
+        width=1200,
+        height=500,
+        background_color="white",
+        colormap="viridis",
+        stopwords=stop_words,
+        max_words=100,
+        collocations=False
+    ).generate(text)
 
-    colors = COLOR_SEQUENCE
-    html_parts = []
-
-    for i, (word, count) in enumerate(top_words):
-        size = 14 + int((count / max_count) * 28)
-        color = colors[i % len(colors)]
-        safe_word = html.escape(word)
-        html_parts.append(
-            f'<span class="word-chip" style="font-size:{size}px;color:{color};" title="{count} times">{safe_word}</span>'
-        )
-
-    st.markdown(
-        f"""
-        <div class="word-map">
-            {" ".join(html_parts)}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.imshow(wordcloud, interpolation="bilinear")
+    ax.axis("off")
+    st.pyplot(fig)
 
 
 def plot_horizontal_bar(summary, y_col="Response", percent_col="Percent", title="Response Distribution"):
@@ -330,6 +325,7 @@ def plot_horizontal_bar(summary, y_col="Response", percent_col="Percent", title=
     )
 
     fig.update_traces(texttemplate="%{text}%")
+
     fig.update_layout(
         height=520,
         margin=dict(l=20, r=20, t=60, b=20),
@@ -356,10 +352,13 @@ def explode_multiselect_for_relationship(df, qid):
         return df
 
     rows = []
+
     for _, row in df.iterrows():
         items = split_multi_response(row[qid])
+
         if not items:
             continue
+
         for item in items:
             new_row = row.copy()
             new_row[qid] = item
@@ -397,6 +396,7 @@ question_dict = dict(zip(question_lookup["question_id"], question_lookup["questi
 # Sidebar
 # -----------------------------
 st.sidebar.title("Navigation")
+
 page = st.sidebar.radio(
     "Choose a section",
     [
@@ -425,8 +425,10 @@ if page == "Dashboard Overview":
         """, unsafe_allow_html=True)
 
     with col2:
-        # Q1 is not useful as an analytical question, so subtract it from the count.
-        analytical_questions = question_lookup[~question_lookup["question_id"].isin(["Q1"])]
+        analytical_questions = question_lookup[
+            ~question_lookup["question_id"].isin(["Q1"])
+        ]
+
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">Analytical Questions</div>
@@ -436,7 +438,14 @@ if page == "Dashboard Overview":
 
     with col3:
         if "Q8" in cleaned_data.columns:
-            open_to_change = cleaned_data["Q8"].dropna().astype(str).str.lower().isin(["yes", "maybe"]).mean() * 100
+            open_to_change = (
+                cleaned_data["Q8"]
+                .dropna()
+                .astype(str)
+                .str.lower()
+                .isin(["yes", "maybe"])
+                .mean() * 100
+            )
             value = f"{open_to_change:.0f}%"
         else:
             value = "N/A"
@@ -450,6 +459,7 @@ if page == "Dashboard Overview":
 
     with col4:
         missing_rate = round(cleaned_data.isna().mean().mean() * 100, 1)
+
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">Average Missing Data</div>
@@ -484,10 +494,10 @@ elif page == "Question Analysis":
 
     st.subheader("Question-by-Question Analysis")
 
-    # Remove Q1 and Q10 from question-based analysis.
+    # Remove Q1, Q10, Q18, Q24, Q25 from question-based analysis.
     question_options = [
         q for q in question_lookup["question_id"]
-        if q in cleaned_data.columns and q not in ["Q1", "Q10"]
+        if q in cleaned_data.columns and q not in ["Q1", "Q10", "Q18", "Q24", "Q25"]
     ]
 
     selected_q = st.selectbox(
@@ -515,7 +525,6 @@ elif page == "Question Analysis":
     elif selected_q in ["Q6", "Q9", "Q14"]:
         summary = summarize_multi(cleaned_data[selected_q], len(cleaned_data))
         title = "Selected Options Count"
-        summary = summary.rename(columns={"Percent of Respondents": "Percent"})
 
     else:
         summary = summarize_single(cleaned_data[selected_q])
@@ -545,7 +554,7 @@ elif page == "Question Analysis":
 # -----------------------------
 elif page == "Open-Ended Themes":
 
-    st.subheader("Open-Ended Response Themes and Word Map")
+    st.subheader("Open-Ended Response Themes and Word Cloud")
 
     open_ended_questions = [
         q for q in ["Q18", "Q24", "Q25"]
@@ -584,15 +593,21 @@ elif page == "Open-Ended Themes":
                 color_discrete_sequence=COLOR_SEQUENCE,
                 title="Main Themes"
             )
+
             fig.update_traces(texttemplate="%{text}%")
-            fig.update_layout(height=450, showlegend=False)
+            fig.update_layout(
+                height=450,
+                showlegend=False,
+                yaxis=dict(categoryorder="total ascending")
+            )
+
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No themes found for this question.")
 
-    st.markdown("#### Word Map")
-    st.caption("Words appear larger when they are repeated more often.")
-    show_word_map(cleaned_data[selected_open_q])
+    st.markdown("#### Word Cloud")
+    st.caption("Larger words were repeated more often in the open-ended responses.")
+    show_word_cloud(cleaned_data[selected_open_q])
 
     st.markdown("#### Open-Ended Responses")
 
@@ -631,13 +646,14 @@ elif page == "Relationship Analysis":
 
     st.markdown("""
     Use this section to compare how answers to one question relate to another.
-    Q1 and Q10 are removed from this section. Q3, Q4, and Q20 are grouped into ranges.
+    Q1, Q10, Q18, Q24, and Q25 are removed from this section.
+    Q3, Q4, and Q20 are grouped into ranges.
     Q6, Q9, and Q14 are treated as select-all-that-apply questions.
     """)
 
     question_ids = [
         q for q in question_lookup["question_id"]
-        if q in cleaned_data.columns and q not in ["Q1", "Q10"]
+        if q in cleaned_data.columns and q not in ["Q1", "Q10", "Q18", "Q24", "Q25"]
     ]
 
     col1, col2 = st.columns(2)
@@ -679,6 +695,7 @@ elif page == "Relationship Analysis":
         })
 
         temp = temp.dropna()
+
         temp = temp[
             (temp["First Question"].astype(str).str.strip() != "") &
             (temp["Second Question"].astype(str).str.strip() != "")

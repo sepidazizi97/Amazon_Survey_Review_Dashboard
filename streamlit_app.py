@@ -66,14 +66,6 @@ st.markdown("""
     color: #17324d;
     margin-top: 8px;
 }
-.info-panel {
-    background-color: white;
-    padding: 22px;
-    border-radius: 18px;
-    box-shadow: 0px 4px 14px rgba(0,0,0,0.06);
-    margin-bottom: 20px;
-    border: 1px solid #e6eaf0;
-}
 .insight-box {
     background-color: #ffffff;
     border-left: 5px solid #1f77b4;
@@ -107,6 +99,8 @@ COLOR_SEQUENCE = [
     "#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd", "#d62728",
     "#17becf", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22"
 ]
+
+DATA_FILE = "amazon_survey_cleaned_outputs.xlsx"
 
 # -----------------------------
 # Helper Functions
@@ -445,19 +439,20 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload cleaned Excel file",
-    type=["xlsx"]
-)
-
-if uploaded_file is None:
-    st.info("Upload your cleaned Excel file to begin.")
+# -----------------------------
+# Automatically load data
+# -----------------------------
+try:
+    xls = pd.ExcelFile(DATA_FILE)
+    cleaned_data = pd.read_excel(DATA_FILE, sheet_name="cleaned_data")
+    question_lookup = pd.read_excel(DATA_FILE, sheet_name="question_lookup")
+except FileNotFoundError:
+    st.error(
+        f"Could not find `{DATA_FILE}` in the GitHub repository. "
+        "Please upload the Excel file to the same folder as `streamlit_app.py`, "
+        "or change DATA_FILE to the correct path, such as `data/cleaned/amazon_survey_cleaned_outputs.xlsx`."
+    )
     st.stop()
-
-xls = pd.ExcelFile(uploaded_file)
-
-cleaned_data = pd.read_excel(uploaded_file, sheet_name="cleaned_data")
-question_lookup = pd.read_excel(uploaded_file, sheet_name="question_lookup")
 
 question_dict = dict(zip(question_lookup["question_id"], question_lookup["question_text"]))
 
@@ -541,7 +536,6 @@ if page == "Dashboard Overview":
     col_a, col_b = st.columns([1.25, 1])
 
     with col_a:
-        st.markdown('<div class="info-panel">', unsafe_allow_html=True)
         st.subheader("Purpose of the Dashboard")
         st.markdown("""
         This dashboard summarizes employee transportation survey results from the Amazon facility.
@@ -549,15 +543,12 @@ if page == "Dashboard Overview":
         and possible opportunities for service planning, employer partnerships, carpool/vanpool programs,
         and access improvements.
         """)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_b:
-        st.markdown('<div class="info-panel">', unsafe_allow_html=True)
         st.subheader("Planning Focus")
         insight_box("Commute behavior", "Understand how employees currently travel to work.")
         insight_box("Transit barriers", "Identify the most common reasons employees do not use transit.")
         insight_box("Employer opportunity", "Explore where passes, carpool, rideshare, or schedule changes may help.")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("Survey Questions")
     st.caption("Q10 is removed from the overview and all analytical tabs.")

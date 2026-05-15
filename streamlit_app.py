@@ -331,24 +331,13 @@ def create_theme_outputs(df, qid):
     return theme_summary, theme_df
 
 
-def show_word_cloud(series):
-    stop_words = {
-        "the", "and", "for", "that", "this", "with", "from", "have", "has",
-        "are", "was", "were", "you", "your", "will", "would", "could",
-        "should", "not", "but", "can", "all", "our", "their", "they",
-        "them", "than", "then", "also", "more", "very", "use", "using",
-        "used", "need", "needs", "work", "transportation", "public",
-        "bus", "buses", "route", "routes", "amazon", "company",
-        "employee", "employees", "commute", "answer", "none",
-        "nan", "n/a", "na", "para", "que", "los", "las", "una", "uno",
-        "con", "por", "del", "como", "mas", "más", "hay", "trabajo"
-    }
-
-    text = " ".join(series.dropna().astype(str)).lower()
-
-    if not text.strip():
-        st.info("No words available for this word cloud.")
+def show_theme_cloud(theme_summary):
+    """Create a word cloud based on how many times each theme was repeated."""
+    if theme_summary.empty:
+        st.info("No themes available for the theme cloud.")
         return
+
+    frequencies = dict(zip(theme_summary["Theme"], theme_summary["Count"]))
 
     if WORDCLOUD_AVAILABLE:
         wordcloud = WordCloud(
@@ -356,32 +345,28 @@ def show_word_cloud(series):
             height=500,
             background_color="white",
             colormap="viridis",
-            stopwords=stop_words,
-            max_words=100,
+            max_words=80,
+            prefer_horizontal=0.75,
+            random_state=42,
             collocations=False
-        ).generate(text)
+        ).generate_from_frequencies(frequencies)
 
         fig, ax = plt.subplots(figsize=(14, 6))
         ax.imshow(wordcloud, interpolation="bilinear")
         ax.axis("off")
         st.pyplot(fig)
     else:
-        st.warning("The wordcloud package is not installed. Showing top words instead.")
-        text = re.sub(r"[^a-zA-ZáéíóúñüÁÉÍÓÚÑÜ\s]", " ", text)
-        words = [w for w in text.split() if len(w) > 2 and w not in stop_words]
-        word_counts = pd.Series(words).value_counts().head(30).reset_index()
-        word_counts.columns = ["Word", "Count"]
-
+        st.warning("The wordcloud package is not installed. Showing a theme frequency chart instead.")
         fig = px.bar(
-            word_counts.sort_values("Count"),
+            theme_summary.sort_values("Count"),
             x="Count",
-            y="Word",
+            y="Theme",
             orientation="h",
             color="Count",
             color_continuous_scale="Viridis",
-            title="Top repeated words"
+            title="Theme Frequency"
         )
-        fig.update_layout(height=520)
+        fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
 
 
@@ -582,7 +567,7 @@ if page == "Dashboard Overview":
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("Survey Questions")
-    st.caption("Q10 is removed from this overview and from all analytical tabs.")
+    st.caption("Q10 is removed from the overview and all analytical tabs.")
     overview_questions = question_lookup[
         ~question_lookup["question_id"].isin(["Q10"])
     ]
@@ -638,10 +623,8 @@ elif page == "Question Analysis":
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown("#### Response Summary")
         st.dataframe(summary, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -659,7 +642,7 @@ elif page == "Question Analysis":
 # -----------------------------
 elif page == "Open-Ended Themes":
 
-    st.subheader("Open-Ended Response Themes and Word Cloud")
+    st.subheader("Open-Ended Response Themes and Theme Cloud")
 
     open_ended_questions = [
         q for q in ["Q18", "Q24", "Q25"]
@@ -683,10 +666,8 @@ elif page == "Open-Ended Themes":
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown("#### Theme Counts")
         st.dataframe(theme_summary, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -717,38 +698,27 @@ elif page == "Open-Ended Themes":
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown("#### Word Cloud by Selected Theme")
-    st.caption("Larger words were repeated more often within the selected theme.")
-
-    if not response_theme_df.empty:
-        selected_theme = st.selectbox(
-            "Select a theme",
-            list(theme_summary["Theme"])
-        )
-
-        theme_responses = response_theme_df[
-            response_theme_df["Theme"] == selected_theme
-        ]["Response"]
-
-        show_word_cloud(theme_responses)
-    else:
-        selected_theme = None
-        st.info("No themed responses available for the word cloud.")
-
+    st.markdown("#### Theme Cloud")
+    st.caption("Larger theme names were repeated more often across the open-ended responses.")
+    show_theme_cloud(theme_summary)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown("#### Open-Ended Responses")
 
     if not response_theme_df.empty:
+        selected_theme = st.selectbox(
+            "Filter responses by theme",
+            ["All"] + list(theme_summary["Theme"])
+        )
+
         filtered_responses = response_theme_df.copy()
 
-        if selected_theme:
+        if selected_theme != "All":
             filtered_responses = filtered_responses[
                 filtered_responses["Theme"] == selected_theme
             ]
 
-        search_term = st.text_input("Search within selected theme responses")
+        search_term = st.text_input("Search within responses")
 
         if search_term:
             filtered_responses = filtered_responses[
@@ -760,8 +730,6 @@ elif page == "Open-Ended Themes":
         st.dataframe(filtered_responses, use_container_width=True)
     else:
         st.info("No open-ended responses found.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------------
 # Relationship Analysis
@@ -832,10 +800,8 @@ elif page == "Relationship Analysis":
             temp["Second Question"]
         )
 
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown("#### Cross-Tabulation")
         st.dataframe(relationship_table, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
         heatmap_data = relationship_table.reset_index().melt(
             id_vars="First Question",

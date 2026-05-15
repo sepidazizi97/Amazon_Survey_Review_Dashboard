@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.express as px
 import re
 
-# Word cloud is optional so the app does not crash if Streamlit has not installed it yet.
 try:
     from wordcloud import WordCloud
     import matplotlib.pyplot as plt
@@ -67,7 +66,7 @@ st.markdown("""
     color: #17324d;
     margin-top: 8px;
 }
-.section-card {
+.info-panel {
     background-color: white;
     padding: 22px;
     border-radius: 18px;
@@ -112,17 +111,12 @@ COLOR_SEQUENCE = [
 # -----------------------------
 # Helper Functions
 # -----------------------------
-
 def split_multi_response(value):
-    """Split select-all-that-apply answers such as Q6, Q9, and Q14."""
     if pd.isna(value):
         return []
-
     text = str(value).strip()
-
     if not text:
         return []
-
     parts = re.split(r";|\n|\|", text)
     return [p.strip() for p in parts if p.strip()]
 
@@ -176,7 +170,6 @@ def extract_number(value):
 
     nums = [float(n) for n in nums]
 
-    # If the person wrote a range like 20–30, use the average.
     if len(nums) >= 2:
         return sum(nums[:2]) / 2
 
@@ -332,7 +325,6 @@ def create_theme_outputs(df, qid):
 
 
 def show_theme_cloud(theme_summary):
-    """Create a word cloud based on how many times each theme was repeated."""
     if theme_summary.empty:
         st.info("No themes available for the theme cloud.")
         return
@@ -354,6 +346,7 @@ def show_theme_cloud(theme_summary):
         fig, ax = plt.subplots(figsize=(14, 6))
         ax.imshow(wordcloud, interpolation="bilinear")
         ax.axis("off")
+        fig.patch.set_facecolor("#f5f7fb")
         st.pyplot(fig)
     else:
         st.warning("The wordcloud package is not installed. Showing a theme frequency chart instead.")
@@ -548,7 +541,7 @@ if page == "Dashboard Overview":
     col_a, col_b = st.columns([1.25, 1])
 
     with col_a:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="info-panel">', unsafe_allow_html=True)
         st.subheader("Purpose of the Dashboard")
         st.markdown("""
         This dashboard summarizes employee transportation survey results from the Amazon facility.
@@ -559,7 +552,7 @@ if page == "Dashboard Overview":
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_b:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="info-panel">', unsafe_allow_html=True)
         st.subheader("Planning Focus")
         insight_box("Commute behavior", "Understand how employees currently travel to work.")
         insight_box("Transit barriers", "Identify the most common reasons employees do not use transit.")
@@ -580,7 +573,6 @@ elif page == "Question Analysis":
 
     st.subheader("Question-by-Question Analysis")
 
-    # Remove Q1, Q10, Q18, Q24, Q25 from question-based analysis.
     question_options = [
         q for q in question_lookup["question_id"]
         if q in cleaned_data.columns and q not in ["Q1", "Q10", "Q18", "Q24", "Q25"]
@@ -594,7 +586,6 @@ elif page == "Question Analysis":
 
     st.subheader(question_dict[selected_q])
 
-    # Q3, Q4, Q20 as ranges.
     if selected_q == "Q3":
         summary = summarize_range(cleaned_data[selected_q], commute_time_range)
         title = "Commute Time Ranges"
@@ -607,7 +598,6 @@ elif page == "Question Analysis":
         summary = summarize_range(cleaned_data[selected_q], commute_cost_range)
         title = "Daily Commute Cost Ranges"
 
-    # Q6, Q9, Q14 as select-all-that-apply counts.
     elif selected_q in ["Q6", "Q9", "Q14"]:
         summary = summarize_multi(cleaned_data[selected_q], len(cleaned_data))
         title = "Selected Options Count"
@@ -627,7 +617,6 @@ elif page == "Question Analysis":
         st.dataframe(summary, use_container_width=True)
 
     with col2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         fig = plot_horizontal_bar(
             summary,
             y_col="Response",
@@ -635,7 +624,6 @@ elif page == "Question Analysis":
             title=title
         )
         st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------------
 # Open-ended themes
@@ -670,7 +658,6 @@ elif page == "Open-Ended Themes":
         st.dataframe(theme_summary, use_container_width=True)
 
     with col2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         if not theme_summary.empty:
             fig = px.bar(
                 theme_summary.sort_values("Count"),
@@ -695,13 +682,10 @@ elif page == "Open-Ended Themes":
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No themes found for this question.")
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown("#### Theme Cloud")
     st.caption("Larger theme names were repeated more often across the open-ended responses.")
     show_theme_cloud(theme_summary)
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("#### Open-Ended Responses")
 
@@ -772,7 +756,6 @@ elif page == "Relationship Analysis":
     else:
         relationship_data = cleaned_data.copy()
 
-        # Explode multi-select questions if they are part of the relationship.
         if q1 in ["Q6", "Q9", "Q14"]:
             relationship_data = explode_multiselect_for_relationship(relationship_data, q1)
 
@@ -809,7 +792,6 @@ elif page == "Relationship Analysis":
             value_name="Count"
         )
 
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
         fig = px.density_heatmap(
             heatmap_data,
             x="Second Question",
@@ -827,4 +809,3 @@ elif page == "Relationship Analysis":
         )
 
         st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
